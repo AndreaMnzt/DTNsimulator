@@ -6,7 +6,7 @@ from packet import *
 
 class Node:
     
-    def __init__(self, id, dev_class, energy_per_packet = 5, deltaP = 0.1, deltaW = 0.1, alpha = 0.1):
+    def __init__(self, id, dev_class, energy_per_packet = 5, deltaP = 0.1, deltaW = 0.1, alpha = 0.1, debug = False):
         
         self.space = [300, 150]
         
@@ -32,9 +32,13 @@ class Node:
         # packets
         #self.packet_list = {}
         self.packet_list = {}
+        self.has_new_packets = False
         
         #communication values
         self.energy_per_packet = energy_per_packet
+        
+        #debug
+        self.debug = debug
         
     def get_bundle(self, bundle):
         
@@ -47,17 +51,33 @@ class Node:
             else:
                 packet.add_hop(self.id)
                 
-        return received_pcks_hops 
+        return received_pcks_hops
+    
+    def drop_bundle(self, bundle):
+        
+        received_pcks_hops = {}
+        dropped_pcks_hops = {}
+        
+        
+        for packet in bundle:
+            if packet.destination == self.id:
+                #packet.add_hop(self.id) #TO REWARD DESTINATION TOO
+                received_pcks_hops[packet.id] = packet.hops
+            else:
+                dropped_pcks_hops[packet.id] = packet.hops
+
+        return received_pcks_hops, dropped_pcks_hops
     
     def get_packet(self,packet):
         self.packet_list[packet.id] = packet
+        self.has_new_packets = True
     
     def start_communication(self, node, mode = 'MD'):
         #return spent energy. If > 0 then the communication can start
         
         if mode == 'MD':   
                     
-            if node!=self.id:
+            if node.id != self.id:
                 bundle = self.create_bundle(node)
 
                 #if there are pcks to send
@@ -84,12 +104,13 @@ class Node:
                     
                     self_delta_P = (self.increaseP() - self.P_succ)
                     self_delta_W = (self.increaseW(W_link) - W_link)
+                    
                     if rec_utility_accept > rec_utility_decline:
                         receiver_charged_utiliy = self.B*self_delta_P*W_sum + self.B*self.increaseP()*(self.increaseW(W_link))-self.alpha*energy_cost
                     else:
                         receiver_charged_utiliy = self.P_succ*self.B*(self_delta_W)
                 
-                    
+                    # A NOT CHARGED
                     if self.B < node.B:
                         receiver_not_charged_utiliy = self.B*self_delta_P*W_sum + self.B*(self.decreaseP())*(self.increaseW(W_link))-self.alpha*energy_cost
                     
@@ -97,19 +118,31 @@ class Node:
                         receiver_not_charged_utiliy = node.P_succ*node.B*(self_delta_W)
                     
                         
-
+                    #EXPECTED PAYOFF
                     communication_payoff = p*(receiver_charged_utiliy) + (1-p)*receiver_not_charged_utiliy
                 
                     no_communication_payoff = 0
                             
-                            
+                    debug = True
+                    if self.debug:
+                        if communication_payoff > no_communication_payoff and energy_cost < self.energy:
+                            print('- ' + str(self.id) + " wants to communicate with " + str(node.id))
+                        else:
+                            print('- ' +str(self.id) + " don't want to communicate with " + str(node.id))
+                    
+                        
                     if communication_payoff > no_communication_payoff and energy_cost < self.energy:
                         return bundle
-                        
-                        
+                    
+                    return {}
+                else:
+                    #if self.debug:
+                    #    print('No packet to send')
+                    return {}
                         
             
             return {}
+        
         elif mode == 'epidemic':
             return 0
         else:
@@ -144,12 +177,14 @@ class Node:
             return 0
     
     def receive(self, node, bundle, mode = 'MD'):
+        
+
         if mode == 'MD':
             
             bundle_size = len(bundle)
             energy_cost = bundle_size*self.energy_per_packet
             
-            if energy_cost > self.energy:
+            if energy_cost < self.energy:
                 W_sum = sum([i[2] for i in self.ego_graph.edges(self, 'weight')])
                 W_link = self.ego_graph[self][node]['weight']
                 
@@ -159,7 +194,8 @@ class Node:
                 
                 #print('accept: ' + str(U_accept) + ' decline: ' + str(U_decline))
                 if U_accept>U_decline:
-                    
+                    if self.debug:
+                        print(str(self.id) + ' does accept to communicate with ' + str(node.id))
                     #print('A')
                     
                     deltaW = self.increaseW(self.ego_graph[self][node]['weight']) - self.ego_graph[self][node]['weight'] 
@@ -171,15 +207,16 @@ class Node:
                     
                     received_packets_hops = self.get_bundle(bundle)
                     
-                    return energy_cost, deltaW, received_packets_hops
+                    return energy_cost, deltaW, received_packets_hops, {}
                 else:
                     deltaW = self.decreaseW(self.ego_graph[self][node]['weight']) - self.ego_graph[self][node]['weight']
                     
                     self.ego_graph[self][node]['weight'] = self.decreaseW(self.ego_graph[self][node]['weight'])
                     node.ego_graph[node][self]['weight'] = self.decreaseW(self.ego_graph[node][self]['weight'])
                     #print('B')
-                    
-                    return 0, deltaW, {}
+                    if self.debug:
+                        print(str(self.id) + ' does not accept to communicate with ' + str(node.id))
+                    return 0, deltaW, {}, {}
             else:
                 if self.B < node.B:
                     deltaW = self.increaseW(self.ego_graph[self][node]['weight']) - self.ego_graph[self][node]['weight']
@@ -189,17 +226,24 @@ class Node:
                     node.ego_graph[node][self]['weight'] = self.increaseW(self.ego_graph[node][self]['weight'])
                     node.energy = node.energy - energy_cost
                     
-                    received_packets_hops = self.get_bundle(bundle)
-                    #print('C')
+                    received_packets_hops, dropped_packets_hops = self.drop_bundle(bundle)
                     
-                    return energy_cost, deltaW, received_packets_hops
+                    #print('C')
+                    if self.debug:
+                        print(str(self.id) + ' lie: communicate with ' + str(node.id))
+                    
+                    
+                    
+                    return energy_cost, deltaW, received_packets_hops, dropped_packets_hops
                 else:
                     deltaW = self.decreaseW(self.ego_graph[self][node]['weight']) - self.ego_graph[self][node]['weight']
                     self.ego_graph[self][node]['weight'] - self.decreaseW(self.ego_graph[self][node]['weight'])
                     node.ego_graph[node][self]['weight'] = self.decreaseW(self.ego_graph[node][self]['weight'])
-                    #print('D')
                     
-                    return 0, deltaW, {}
+                    if self.debug:
+                        print(str(self.id) + " do not lie: don't communicate with " + str(node.id) + ': ' + str(energy_cost) + '>' + str(self.energy))
+                    
+                    return 0, deltaW, {}, {}
             
         
         
@@ -241,7 +285,8 @@ class Node:
             self.past_positions  = np.vstack((self.past_positions, self.position))
             self.position = self.position
         
-            
+                
+        
         
     def get_node_connection(self, node):
         #for nodes with distance < radius 
@@ -337,6 +382,84 @@ class Node:
             return 0
         
         return currentW - self.deltaW
+    
+    def compute_payoff(self, node, bundle):
+        #start the MD protocol
+        
+        bundle_size = len(bundle)
+        cost_per_pck = self.energy_per_packet
+        p = (100-cost_per_pck)/cost_per_pck
+        energy_cost = cost_per_pck*bundle_size
+                    
+        ## A CHARGED
+        W_sum_rec = sum([i[2] for i in node.ego_graph.edges(node, 'weight')])
+        W_link_rec = self.ego_graph[node][self]['weight']
+                    
+        W_sum = sum([i[2] for i in self.ego_graph.edges(self, 'weight')])
+        W_link = self.ego_graph[self][node]['weight']
+               
+        node_delta_P = (node.increaseP() - node.P_succ)
+        node_delta_W = (node.increaseW(W_link) - W_link)
+        rec_utility_accept = node.B*node_delta_P*W_sum_rec + node.B*(node.increaseP())*(node.increaseW(W_link))-node.alpha*energy_cost
+        rec_utility_decline = node.P_succ*node.B*(node.deltaW)
+                    
+                    
+        self_delta_P = (self.increaseP() - self.P_succ)
+        self_delta_W = (self.increaseW(W_link) - W_link)
+                    
+        if rec_utility_accept > rec_utility_decline:
+            receiver_charged_utiliy = self.B*self_delta_P*W_sum + self.B*self.increaseP()*(self.increaseW(W_link))-self.alpha*energy_cost
+        else:
+            receiver_charged_utiliy = self.P_succ*self.B*(self_delta_W)
+                
+        # A NOT CHARGED
+        if self.B < node.B:
+            receiver_not_charged_utiliy = self.B*self_delta_P*W_sum + self.B*(self.decreaseP())*(self.increaseW(W_link))-self.alpha*energy_cost
+                   
+        else:
+            receiver_not_charged_utiliy = node.P_succ*node.B*(self_delta_W)
+                    
+                        
+        #EXPECTED PAYOFF
+        communication_payoff = p*(receiver_charged_utiliy) + (1-p)*receiver_not_charged_utiliy
+                
+        no_communication_payoff = 0
+                            
+        debug = True
+        if self.debug:
+            if communication_payoff > no_communication_payoff and energy_cost < self.energy:
+                print('- ' + str(self.id) + " wants to communicate with " + str(node.id))
+            else:
+                print('- ' +str(self.id) + " don't want to communicate with " + str(node.id))
+                    
+                        
+        if communication_payoff > no_communication_payoff and energy_cost < self.energy:
+            return communication_payoff
+        return no_communication_payoff
+
+    
+    def best_receivers(self,node_list):
+        
+        best_receivers = {}
+        
+        for node in node_list:
+            if node.id != self.id:
+        
+                bundle = self.create_bundle(node)
+                bundle_size = len(bundle)
+                if bundle_size > 0:
+                    best_receivers[node] = self.compute_payoff(node, bundle)
+            
+        if len(best_receivers)>0:
+            sorted_best_receiver = dict(sorted(best_receivers.items(), key=lambda item: item[1], reverse=True))
+        else:
+            sorted_best_receiver = {}
+        
+        return sorted_best_receiver
+                    
+        
+    
+    
     
         
 def number_of_nodes(density):

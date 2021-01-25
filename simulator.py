@@ -9,18 +9,21 @@ import networkx as nx
 import uuid
 
 class Simulator():
-    def __init__(self,density, classes = {'fast':100}, arrival_rate = 1/5, energy_per_packet = 5, deltaP = 0.1, deltaW = 0.1, alpha = 0.1) :
+    def __init__(self,density, classes = {'fast':100}, arrival_rate = 1/5, energy_per_packet = 5, deltaP = 0.1, deltaW = 0.1, alpha = 0.1, radius = 50, debug = False) :
         self.n_nodes = number_of_nodes(density)
-        self.nodes = self.create_nodes(classes, energy_per_packet, deltaP , deltaW, alpha)
+        self.nodes = self.create_nodes(classes, energy_per_packet, deltaP , deltaW, alpha, debug)
         self.nodes_ids = [node.id for node in self.nodes]
         self.nodes_positions = self.get_nodes_position()
-        self.radius = 500
+        self.radius = radius
         self.arrival_rate = arrival_rate
+        
+        #debug 
+        self.debug = debug
         
         #network analysis
         self.graph = self.create_graph()
         
-    def create_nodes(self, classes, energy_per_packet = 5, deltaP = 0.1, deltaW = 0.1, alpha = 0.1):
+    def create_nodes(self, classes, energy_per_packet = 5, deltaP = 0.1, deltaW = 0.1, alpha = 0.1, debug = False):
         counter = 0
         node_list = []
         
@@ -28,21 +31,21 @@ class Simulator():
         if 'static' in classes:
             n_static = math.floor(classes['static']*self.n_nodes/100)
             for node in range(n_static):
-                node_list.append(Node(id=str(counter), dev_class='static', energy_per_packet = energy_per_packet, deltaP = deltaP, deltaW = deltaW, alpha = alpha))
+                node_list.append(Node(id=str(counter), dev_class='static', energy_per_packet = energy_per_packet, deltaP = deltaP, deltaW = deltaW, alpha = alpha, debug = debug))
                 counter+=1
         
         
         if 'slow' in classes:
             n_slow = math.floor(classes['slow']*self.n_nodes/100)
             for node in range(n_slow):
-                node_list.append(Node(id=str(counter), dev_class='slow', energy_per_packet = energy_per_packet, deltaP = deltaP, deltaW = deltaW, alpha = alpha))
+                node_list.append(Node(id=str(counter), dev_class='slow', energy_per_packet = energy_per_packet, deltaP = deltaP, deltaW = deltaW, alpha = alpha, debug = debug))
                 counter+=1
         
         if 'fast' in classes:
             n_fast = math.floor(classes['fast']*self.n_nodes/100)
         
             for node in range(n_fast):
-                node_list.append(Node(id=str(counter), dev_class='fast', energy_per_packet = energy_per_packet, deltaP = deltaP, deltaW = deltaW, alpha = alpha))
+                node_list.append(Node(id=str(counter), dev_class='fast', energy_per_packet = energy_per_packet, deltaP = deltaP, deltaW = deltaW, alpha = alpha, debug = debug))
                 counter+=1
             
         return node_list
@@ -142,30 +145,49 @@ class Simulator():
         energy_sum = 0
         if mode=='MD':
             for node in self.nodes:
-                for neighbour in list(node.ego_graph.nodes):
-                    if neighbour!=node:
+                if node.has_new_packets:
+                    best_receivers = node.best_receivers(list(node.ego_graph.nodes))
+                    
+                    for neighbour in best_receivers:
+                        if neighbour!=node:
+                            #if self.debug:
+                            #    print('Node ' + str(neighbour.id) + ' neighbour of ' + str(node.id))
 
-                        #start communication
-                        bundle = node.start_communication(neighbour, mode = 'MD')
+                            #start communication
+                            bundle = node.start_communication(neighbour, mode = 'MD')
 
-                        if(len(bundle)>0):
+                            if(len(bundle)>0):
+                                if self.debug:
+                                    print('Bundle size: ' + str(len(bundle)))
+                                energy, deltaW, received_pcks_hops, dropped_pcks_hops = neighbour.receive(node,bundle, mode = 'MD')
+                                self.graph[node][neighbour]['weight'] += deltaW
 
-                            energy, deltaW, received_pcks_hops = neighbour.receive(node,bundle, mode = 'MD')
-                            self.graph[node][neighbour]['weight'] += deltaW
+                                rec_sum += len(received_pcks_hops)
+                                energy_sum += energy
 
-                            rec_sum += len(received_pcks_hops)
-                            energy_sum += energy
+                                for received_pck in received_pcks_hops:
 
-                            for received_pck in received_pcks_hops:
+                                    for n in self.nodes:
+                                        if n.id in received_pcks_hops[received_pck]:
+                                            n.P_succ = n.increaseP()
+                                        elif received_pck in n.packet_list:
+                                            n.P_succ = n.decreaseP()
+                                            n.packet_list.pop(received_pck, None)
 
-                                for n in self.nodes:
-                                    if n.id in received_pcks_hops[received_pck]:
-                                        n.P_succ = n.increaseP()
-                                    elif received_pck in n.packet_list:
-                                        n.P_succ = n.decreaseP()
-                                        n.packet_list.pop(received_pck, None)
+                                for dropped_pck in dropped_pcks_hops:
 
-                                                                
+                                    for n in self.nodes:
+                                        if n.id in dropped_pcks_hops[dropped_pck]:
+                                            n.P_succ = n.decreaseP()
+
+                                        elif dropped_pck in n.packet_list:
+                                            n.P_succ = n.decreaseP()
+                                            n.packet_list.pop(dropped_pck, None)
+                    
+                    node.has_new_packets = False
+
+                    
+
                             
         return rec_sum, energy_sum
             

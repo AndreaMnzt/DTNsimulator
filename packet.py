@@ -15,6 +15,10 @@ class Packet:
     def add_hop(self, node):
         self.hops.append(node)
         
+    def remove_hop(self, node):
+        self.hops.remove(node)
+    
+    
     def received(self):
         self.received = True
         
