@@ -3,10 +3,10 @@ import copy
 class Packet:
     def __init__(self, id, source, destination):
         self.id = id
-        self.source = source #node.id
-        self.destination = destination #node.id
-        self.hops = [source]
-        self.received = False
+        self.source = source #node.id -> only the id of the node
+        self.destination = destination #node.id  -> only id of the node
+        self.hops = [source] #list of all hops for the packed
+        self.received = False 
         self.copies = 1
         self.max_copies = 4
         
