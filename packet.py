@@ -10,7 +10,7 @@ class Packet:
         self.copies = 1
         self.max_copies = 4
         
-        
+        self.original = True
         
     def add_hop(self, node):
         self.hops.append(node)
@@ -24,4 +24,8 @@ class Packet:
         
     def create_copy(self):
         pck_copy = copy.deepcopy(self)
+        pck_copy.original = False
         return pck_copy
+    
+    def is_original(self):
+        return self.original

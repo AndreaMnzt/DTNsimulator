@@ -9,12 +9,15 @@ import networkx as nx
 import uuid
 
 class Simulator():
-    def __init__(self,density, classes = {'fast':100}, arrival_rate = 1/5, energy_per_packet = 5, deltaP = 0.1, deltaW = 0.1, alpha = 0.1, radius = 50, debug = False) :
+    def __init__(self,density, classes = {'fast':100}, arrival_rate = 1/5, energy_per_packet = 5, deltaP = 0.1, deltaW = 0.1, alpha = 0.1, radius = 50, max_bundle_size = 5, debug = False) :
         self.n_nodes = number_of_nodes(density)
         self.nodes = self.create_nodes(classes, energy_per_packet, deltaP , deltaW, alpha, debug)
         self.nodes_ids = [node.id for node in self.nodes]
         self.nodes_positions = self.get_nodes_position()
         self.radius = radius
+        
+        #packets
+        self.max_bundle_size = max_bundle_size
         self.arrival_rate = arrival_rate
         
         #debug 
@@ -154,25 +157,34 @@ class Simulator():
         # charge node with probability 30% at each time step
          
         for node in self.nodes:
-            if node.energy < 10:
+            if node.energy<20:
+                num = np.random.poisson(self.arrival_rate)
+                if num>0:
+                    node.charge_dev()
             
-                charge_device = np.random.rand() < 0.3
-            
-                if charge_device:
-                    node.energy = 100
+        
+    
+        #for node in self.nodes:
+        #    if node.energy < 10:
+        #    
+        #        charge_device = np.random.rand() < 0.3
+        #    
+        #        if charge_device:
+        #            node.energy = 100
     
     def communicate(self, mode = 'MD'):
         #start a communication from a device
         #retun arrived (received) packets, dropped packets, energy spent
         
-        #return values
-        rec_sum = 0
-        drop_sum = 0
-        energy_sum = 0
         
         
         if mode=='MD':
-            
+                
+            #return values
+            rec_sum = 0
+            drop_sum = 0
+            energy_sum = 0
+        
             #if there are new packets try a new communcation with the neighbourhood
             for node in self.nodes:
                 if node.has_new_packets:
@@ -188,7 +200,7 @@ class Simulator():
                             #    print('Node ' + str(neighbour.id) + ' neighbour of ' + str(node.id))
 
                             #start communication, get a bundle to send
-                            bundle = node.start_communication(neighbour, mode = 'MD')
+                            bundle = node.start_communication(neighbour, mode = 'MD', max_bundle_size = self.max_bundle_size)
                             
                             #if the bundle has some packets inside ask to the receiver to accept
                             if(len(bundle)>0):
@@ -203,7 +215,8 @@ class Simulator():
                                 # NOTE: commnet these 3 lines to allow copies of packets
                                 if energy > 0:
                                     for pck in bundle:
-                                        node.packet_list.pop(pck.id, None)
+                                        if not pck.is_original():
+                                            node.packet_list.pop(pck.id, None)
                                 
                                 #update weight in the simulation network
                                 self.graph[node][neighbour]['weight'] += deltaW
@@ -211,7 +224,7 @@ class Simulator():
                                 #update return values
                                 rec_sum += len(received_pcks_hops)
                                 energy_sum += energy
-                                drop_sum += len(dropped_pcks_hops)
+                                #drop_sum += len(dropped_pcks_hops)
                                 
                                 # reward hops if a packet arrived
                                 for received_pck in received_pcks_hops:
@@ -224,23 +237,59 @@ class Simulator():
                                             n.packet_list.pop(received_pck, None)
                                 
                                 # punish hops if the packet was dropped
-                                for dropped_pck in dropped_pcks_hops:
+                                # NOTE: ONLY IF ALL THE PACKETS ARE SINGLE COPIES
+                                #for dropped_pck in dropped_pcks_hops:
 
-                                    for n in self.nodes:
-                                        if n.id in dropped_pcks_hops[dropped_pck]:
-                                            n.P_succ = n.decreaseP()
+                                #    for n in self.nodes:
+                                #        if n.id in dropped_pcks_hops[dropped_pck]:
+                                #            n.P_succ = n.decreaseP()
 
-                                        elif dropped_pck in n.packet_list:
-                                            n.P_succ = n.decreaseP()
-                                            n.packet_list.pop(dropped_pck, None)
+                                #        elif dropped_pck in n.packet_list:
+                                #            n.P_succ = n.decreaseP()
+                                #            n.packet_list.pop(dropped_pck, None)
                     
+                                
+                                for packet in dropped_pcks_hops:
+                                    completely_dropped = True
+                                    for n in self.nodes:
+                                        if packet in n.packet_list:
+                                            completely_dropped = False
+                                    
+                                    if completely_dropped:
+                                        drop_sum += 1
+                        
+                        
                     #close the connection up to the next packet
                     node.has_new_packets = False
-
-        return rec_sum, drop_sum, energy_sum
-            
-            
-            
         
+            return rec_sum, drop_sum, energy_sum
+            
+        elif mode=='epidemic':
+                
+            #return values
+            rec_sum = 0
+            drop_sum = 0
+            energy_sum = 0
+        
+            for node in self.nodes:
+        
+                # start to communicate from the best one
+                for neighbour in list(node.ego_graph.nodes):
+                    if neighbour!=node: #avoid to send pcks to himself
+                        #start communication, get a bundle to send
+                        bundle = node.start_communication(neighbour, mode = 'epidemic', max_bundle_size = self.max_bundle_size)
+                        
+                        energy, _ , received_pcks_hops, _ = neighbour.receive(node,bundle, mode = 'epidemic')
+                        energy_sum += energy
+                        rec_sum += len(received_pcks_hops)
+                        
+                        # remove arrived pckts
+                        for received_pck in received_pcks_hops:
+
+                            for n in self.nodes:
+                                if received_pck in n.packet_list:
+                                    n.packet_list.pop(received_pck, None)
+                                
+            return rec_sum, 0, energy_sum
         
         
