@@ -78,6 +78,7 @@ class Node:
         #add a packet to the packet list
         
         self.packet_list[packet.id] = packet
+        
         self.has_new_packets = True
     
     
@@ -115,10 +116,12 @@ class Node:
                 
                 #craete a bundle for node
                 bundle = self.create_bundle(node, max_bundle_size)
+                bundle_size = len(bundle)
+                energy_cost = bundle_size*self.energy_per_packet
                 
                 #if there are pcks to send, compute the payoff and decide to accept the communication
                 bundle_size = len(bundle)
-                if bundle_size > 0:
+                if bundle_size > 0 and self.energy > energy_cost:
                     return bundle
                 return {}
             
@@ -127,8 +130,6 @@ class Node:
             
             return {}
         
-        elif mode == 'epidemic':
-            return 0
         else:
             print('Mode not supported')
             return 0
@@ -169,12 +170,14 @@ class Node:
                 W_link = self.ego_graph[self][node]['weight']
                 
                 self_delta_W = (self.increaseW(W_link) - W_link)
+                self_decrease_W = (self.decreaseW(W_link) - W_link)
+                
                 self_delta_P = (self.increaseP() - self.P_succ)
         
                 
                 #compute the payoff
                 U_accept = self.B*self_delta_P*W_self_sum + self.B*(self.increaseP())*(self.increaseW(W_link))-self.alpha*energy_cost
-                U_decline = self.P_succ*self.B*(self_delta_W)
+                U_decline = self.P_succ*self.B*(self_decrease_W)
                 
                 #if the receiver accepts
                 if U_accept>U_decline:
@@ -192,6 +195,7 @@ class Node:
                     
                     #if sone packets arrived at destination return the hops for the packets
                     received_packets_hops = self.get_bundle(bundle)
+                    self.has_new_packets = True
                     
                     #no packets can be dropped here
                     dropped_packets_hops = {}
@@ -226,6 +230,7 @@ class Node:
                     print("Not charged: needed " + str(energy_cost) + ', available:' + str(self.energy))
                 
                 if self.B*self.P_succ*W_self_sum < node.B*node.P_succ*W_node_sum: #i want to keep the contact with a big player: I LIE
+                #if self.B < node.B: #i want to keep the contact with a big player: I LIE
                     
                     # update egograph weight
                     deltaW = self.increaseW(self.ego_graph[self][node]['weight']) - self.ego_graph[self][node]['weight']
@@ -240,6 +245,7 @@ class Node:
                     
                     if self.debug:
                         print(str(self.id) + ' lie: communicate with ' + str(node.id))
+                        print('since ' + str(self.energy) + '<' + str(energy_cost))
                     
                     return energy_cost, deltaW, received_packets_hops, dropped_packets_hops
                 else:
@@ -264,19 +270,19 @@ class Node:
             
             bundle_size = len(bundle)
             energy_cost = bundle_size*self.energy_per_packet
-            if energy_cost < self.energy:
-                received_packets = node.get_bundle(bundle)
             
-                self.energy -= energy_cost
+            received_packets = self.get_bundle(bundle)
             
-                return energy_cost, 0, received_packets, {}
+            node.energy =  node.energy - energy_cost
             
-            else:
-                if self.debug:
-                    print('Energy: ' + str(energy_cost) + ' > available:' + str(self.energy))
+            return energy_cost, 0, received_packets, {}
+            
+            #else:
+            #    if self.debug:
+            #        print('Energy: ' + str(energy_cost) + ' > available:' + str(self.energy))
             
             
-            return 0, 0, {}, {}
+            #return 0, 0, {}, {}
         
         
         
@@ -426,7 +432,7 @@ class Node:
         bundle_size = len(bundle)
         cost_per_pck = self.energy_per_packet
         energy_cost = cost_per_pck*bundle_size
-        p = (100-energy_cost)/energy_cost
+        p = (100-energy_cost)/100
                     
         ## A CHARGED
         W_sum_rec = sum([i[2] for i in node.ego_graph.edges(node, 'weight')])
@@ -440,7 +446,7 @@ class Node:
         rec_utility_accept = node.B*node_delta_P*W_sum_rec + node.B*(node.increaseP())*(node.increaseW(W_link))-node.alpha*energy_cost
         rec_utility_decline = node.P_succ*node.B*(node_delta_W)
                     
-                    
+        
         self_delta_P = (self.increaseP() - self.P_succ)
         self_delta_W = (self.increaseW(W_link) - W_link)
                     
@@ -450,16 +456,24 @@ class Node:
             receiver_charged_utiliy = self.P_succ*self.B*(self_delta_W)
                 
         # A NOT CHARGED
-        if self.B < node.B:
-            receiver_not_charged_utiliy = self.B*self_delta_P*W_sum + self.B*(self.decreaseP())*(self.increaseW(W_link))-self.alpha*energy_cost
+        if self.P_succ*W_sum*self.B > node.B*node.P_succ*W_sum_rec:
+        #if self.B > node.B:
+            self_decrease_P = self.decreaseP() - self.P_succ 
+            receiver_not_charged_utiliy = self.B*self_decrease_P*W_sum + self.B*(self.decreaseP())*(self.increaseW(W_link))-self.alpha*energy_cost
                    
         else:
-            receiver_not_charged_utiliy = node.P_succ*node.B*(self_delta_W)
+            self_decrease_W = (self.decreaseW(W_link) - W_link)
+            receiver_not_charged_utiliy = node.P_succ*node.B*(self_decrease_W)
                     
                         
         #EXPECTED PAYOFF
         communication_payoff = p*(receiver_charged_utiliy) + (1-p)*receiver_not_charged_utiliy
-                
+        
+        #print('sender:')
+        #print(receiver_charged_utiliy)
+        #print(receiver_not_charged_utiliy)
+        
+        
         no_communication_payoff = 0
                             
         debug = True
