@@ -24,7 +24,7 @@ class Node:
         self.radius = 50
         self.B = 0
         self.P_succ = 0.5
-        self.ego_graph = None
+        self.ego_graph = nx.Graph()
         
         self.deltaP = deltaP
         self.deltaW = deltaW
@@ -33,6 +33,7 @@ class Node:
         # packets
         self.packet_list = {} #list of the current packet to send
         self.has_new_packets = False #used to send the packets
+        self.new_neighbours = {}
         
         #communication values
         self.energy_per_packet = energy_per_packet
@@ -121,7 +122,7 @@ class Node:
                 
                 #if there are pcks to send, compute the payoff and decide to accept the communication
                 bundle_size = len(bundle)
-                if bundle_size > 0 and self.energy > energy_cost:
+                if bundle_size > 0 and self.energy >= energy_cost:
                     return bundle
                 return {}
             
@@ -163,7 +164,7 @@ class Node:
             
             
             # left brach of the game -> receiver has enough energy
-            if energy_cost < self.energy:
+            if energy_cost <= self.energy:
                 
                 
                 #current weight of the edge
@@ -176,7 +177,7 @@ class Node:
         
                 
                 #compute the payoff
-                U_accept = self.B*self_delta_P*W_self_sum + self.B*(self.increaseP())*(self.increaseW(W_link))-self.alpha*energy_cost
+                U_accept = self.B*self_delta_P*W_self_sum + self.B*(self.increaseP())*(self_delta_W)-self.alpha*energy_cost
                 U_decline = self.P_succ*self.B*(self_decrease_W)
                 
                 #if the receiver accepts
@@ -429,65 +430,97 @@ class Node:
     def compute_sender_payoff(self, node, bundle):
         #start the MD protocol
         
+        ### ENERGY ########################################################################
         bundle_size = len(bundle)
         cost_per_pck = self.energy_per_packet
         energy_cost = cost_per_pck*bundle_size
         p = (100-energy_cost)/100
-                    
-        ## A CHARGED
+        ####################################################################################         
+            
+            
+            
+        ###### IF R IS CHARGED ################################################################
+        
+        ### W_tot for both nodes
         W_sum_rec = sum([i[2] for i in node.ego_graph.edges(node, 'weight')])
-        W_link_rec = self.ego_graph[node][self]['weight']
-                    
         W_sum = sum([i[2] for i in self.ego_graph.edges(self, 'weight')])
+        
+        ### LINK STRENGTH, THEY ARE EQUAL
+        W_link_rec = self.ego_graph[node][self]['weight']
         W_link = self.ego_graph[self][node]['weight']
                
+        ### POSITIVE AND NEGATIVE VARIATION OF P OF RECEIVER
         node_delta_P = (node.increaseP() - node.P_succ)
+
+        ### POSITIVE AND NEGATIVE VARIATION OF P OF SENDER
+        self_delta_P = (self.increaseP() - self.P_succ)
+
+        ### POSITIVE AND NEGATIVE VARIATION OF LINK STRENTH
         node_delta_W = (node.increaseW(W_link) - W_link)
-        rec_utility_accept = node.B*node_delta_P*W_sum_rec + node.B*(node.increaseP())*(node.increaseW(W_link))-node.alpha*energy_cost
-        rec_utility_decline = node.P_succ*node.B*(node_delta_W)
+        self_decrease_W = (self.decreaseW(W_link) - W_link)
+        self_increaseW = self.increaseW(W_link) - W_link
+            
+        
+        ### -> compute payoffs for receiver
+        rec_utility_accept = node.B*node_delta_P*W_sum_rec + node.B*(node.increaseP())*(node_delta_W)-node.alpha*energy_cost
+        rec_utility_decline = node.P_succ*node.B*(self_decrease_W)
                     
         
         self_delta_P = (self.increaseP() - self.P_succ)
         self_delta_W = (self.increaseW(W_link) - W_link)
                     
+        ### DOES THE RECEIVER ACCEPTS (WHEN CHARGED)
+        
         if rec_utility_accept > rec_utility_decline:
-            receiver_charged_utiliy = self.B*self_delta_P*W_sum + self.B*self.increaseP()*(self.increaseW(W_link))-self.alpha*energy_cost
-        else:
-            receiver_charged_utiliy = self.P_succ*self.B*(self_delta_W)
                 
-        # A NOT CHARGED
-        if self.P_succ*W_sum*self.B > node.B*node.P_succ*W_sum_rec:
+            # if the receiver accepts them 
+            receiver_charged_utiliy = self.B*self_delta_P*W_sum + self.B*self.increaseP()*(self_increaseW)-self.alpha*energy_cost
+            
+        else:
+            receiver_charged_utiliy = self.P_succ*self.B*(self_decrease_W)
+        #################################################################################     
+        
+        
+        
+        
+        ######## A NOT CHARGED ##########################################################
+        if self.B*self.P_succ*W_sum > node.B*node.P_succ*W_sum_rec:
         #if self.B > node.B:
+            
+            
             self_decrease_P = self.decreaseP() - self.P_succ 
-            receiver_not_charged_utiliy = self.B*self_decrease_P*W_sum + self.B*(self.decreaseP())*(self.increaseW(W_link))-self.alpha*energy_cost
+            self_increaseW = self.increaseW(W_link) - W_link
+            receiver_not_charged_utiliy = self.B*self_decrease_P*W_sum + self.B*(self.decreaseP())*(self_increaseW)-self.alpha*energy_cost
                    
         else:
             self_decrease_W = (self.decreaseW(W_link) - W_link)
-            receiver_not_charged_utiliy = node.P_succ*node.B*(self_decrease_W)
-                    
-                        
-        #EXPECTED PAYOFF
+            receiver_not_charged_utiliy = self.P_succ*self.B*(self_decrease_W)
+        #################################################################################            
+               
+            
+            
+        ###### EXPECTED PAYOFF ###########################################################
         communication_payoff = p*(receiver_charged_utiliy) + (1-p)*receiver_not_charged_utiliy
+        no_communication_payoff = 0
         
         #print('sender:')
         #print(receiver_charged_utiliy)
         #print(receiver_not_charged_utiliy)
         
         
-        no_communication_payoff = 0
-                            
+        ##### DECISION OF SENDER #######################################################                    
         debug = True
         if self.debug:
-            if communication_payoff > no_communication_payoff and energy_cost < self.energy:
+            if communication_payoff > no_communication_payoff and energy_cost <= self.energy:
                 print('- ' + str(self.id) + " wants to communicate with " + str(node.id) + ': ' + str(communication_payoff))
             else:
                 print('- ' +str(self.id) + " don't want to communicate with " + str(node.id) +': ' + str(communication_payoff) + 'energy: need ' + str(energy_cost) + 'available: ' + str(self.energy))
                     
                         
-        if communication_payoff > no_communication_payoff and energy_cost < self.energy:
+        if communication_payoff > no_communication_payoff and energy_cost <= self.energy:
             return 'accept', communication_payoff
         return 'decline', no_communication_payoff
-
+        ##################################################################################
     
     def best_receivers(self,node_list):
         # return sorted list of best receiver for the bundle, base on their values
