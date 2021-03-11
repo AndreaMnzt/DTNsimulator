@@ -42,7 +42,7 @@ class Node:
         self.debug = debug
         
     def get_bundle(self, bundle):
-        #add a bundle to packet_list
+        #add a bundle to paateket_list
         #return the hops of the packet if this node was the destination
         
         received_pcks_hops = {}
@@ -124,6 +124,9 @@ class Node:
                 bundle_size = len(bundle)
                 if bundle_size > 0 and self.energy >= energy_cost:
                     return bundle
+                
+                
+                
                 return {}
             
             
@@ -201,7 +204,7 @@ class Node:
                     #no packets can be dropped here
                     dropped_packets_hops = {}
                     
-                    return energy_cost, deltaW, received_packets_hops, dropped_packets_hops
+                    return energy_cost, deltaW, received_packets_hops, dropped_packets_hops, bundle
                 
                 #if receiver declines maybe 
                 else:
@@ -224,7 +227,9 @@ class Node:
                     #no packet can be dropped here
                     dropped_packets_hops = {}
                     
-                    return energy_cost, deltaW, received_packets_hops, dropped_packets_hops
+                    #empty received bundle
+                    bundle = {}
+                    return energy_cost, deltaW, received_packets_hops, dropped_packets_hops, bundle
                 
             else: #no energy! right branch of the game
                 if self.debug:
@@ -248,7 +253,7 @@ class Node:
                         print(str(self.id) + ' lie: communicate with ' + str(node.id))
                         print('since ' + str(self.energy) + '<' + str(energy_cost))
                     
-                    return energy_cost, deltaW, received_packets_hops, dropped_packets_hops
+                    return energy_cost, deltaW, received_packets_hops, dropped_packets_hops, bundle
                 else:
                     
                     # i don't care about this node, let's drop the edge
@@ -264,8 +269,9 @@ class Node:
                     energy_cost = 0 #no trasmission, no cost
                     received_packets_hops = {} #no arrived packets
                     dropped_packets_hops = {} #no arrived packets, no dropped
+                    bundle = {} #empty bundle
                     
-                    return energy_cost, deltaW, received_packets_hops, dropped_packets_hops
+                    return energy_cost, deltaW, received_packets_hops, dropped_packets_hops, bundle
             
         elif mode == 'epidemic':
             
@@ -276,7 +282,7 @@ class Node:
             
             node.energy =  node.energy - energy_cost
             
-            return energy_cost, 0, received_packets, {}
+            return energy_cost, 0, received_packets, {}, bundle
             
             #else:
             #    if self.debug:

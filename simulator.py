@@ -26,6 +26,10 @@ class Simulator():
         
         #network analysis
         self.graph = self.create_graph()
+
+        self.copy_counter = {}
+        self.received_packets = []
+        
         
     def create_nodes(self, classes, energy_per_packet = 5, deltaP = 0.1, deltaW = 0.1, alpha = 0.1, debug = False):
         #create nodes according to the percentages for the classes (they should sum up to 100!)
@@ -152,29 +156,37 @@ class Simulator():
         
         count = 0
         for node in self.nodes:
-            num_pck = np.random.poisson(self.arrival_rate)
+            
+            num_pck = np.random.poisson(self.arrival_rate) #how many pcks to generate
             for i in range(num_pck):
+                
+                ####generate a packet
+                # get list on possible nodes
                 node_ids = self.nodes_ids.copy()
-                node_ids.remove(node.id)
+                node_ids.remove(node.id) #avoid destination==source
+                
+                #generate a pakcet
                 pck = Packet(str(uuid.uuid4().hex), source = node.id, destination = random.choice(node_ids))
                 node.get_packet(pck)
                 
+                self.copy_counter[pck.id] = 1
                 count += 1
         return count
         
     def charge_nodes(self):
         # charge node with probability 30% at each time step
-         
+        energy = 0
         for node in self.nodes:
             if node.energy<20:
                 
                 num = np.random.poisson(1/500)#self.arrival_rate/35)
                 if num>0:
                     #print(str(node.id)+ 'charged')
+                    energy += 100 - node.energy
                     node.charge_dev()
                 #else:
                     #print(str(node.id)+ ' not charged,' +str(node.energy))
-        
+        return energy
     
         #for node in self.nodes:
         #    if node.energy < 10:
@@ -218,11 +230,14 @@ class Simulator():
                                     print('Bundle size: ' + str(len(bundle)))
                                     
                                 # ask to the receiver to accept or not
-                                energy, deltaW, received_pcks_hops, dropped_pcks_hops = neighbour.receive(node,bundle, mode = 'MD')
+                                energy, deltaW, received_pcks_hops, dropped_pcks_hops, bundle = neighbour.receive(node,bundle, mode = 'MD')
                                 
                                 # if the receiver accepted i remove the packet from my list
                                 # NOTE: commnet these 3 lines to allow copies of packets
                                 if energy > 0:
+                                    
+                                    self.collect_packet_copies(bundle)
+                                    
                                     for pck in bundle:
                                         id = pck.id
                                         if not node.packet_list[id].is_original():
@@ -239,6 +254,8 @@ class Simulator():
                                 
                                 # reward hops if a packet arrived
                                 for received_pck in received_pcks_hops:
+                                    self.received_packets.append(received_pck)
+                            
                                     if self.debug:
                                         print('**ARRIVED: ' + str(received_pck) )
                                         print('Hops to reward: ' + str([x for x in received_pcks_hops[received_pck]]))
@@ -305,11 +322,14 @@ class Simulator():
                                     print('Bundle size: ' + str(len(bundle)))
                                     
                                 # ask to the receiver to accept or not
-                                energy, deltaW, received_pcks_hops, dropped_pcks_hops = neighbour.receive(node,bundle, mode = 'MD')
+                                energy, deltaW, received_pcks_hops, dropped_pcks_hops, bundle = neighbour.receive(node,bundle, mode = 'MD')
+                                
                                 
                                 # if the receiver accepted i remove the packet from my list
                                 # NOTE: commnet these 3 lines to allow copies of packets
                                 if energy > 0:
+                                    self.collect_packet_copies(bundle)
+                                
                                     for pck in bundle:
                                         id = pck.id
                                         if not node.packet_list[id].is_original():
@@ -326,6 +346,8 @@ class Simulator():
                                 
                                 # reward hops if a packet arrived
                                 for received_pck in received_pcks_hops:
+                                    self.received_packets.append(received_pck)
+                            
                                     if self.debug:
                                         print('**ARRIVED: ' + str(received_pck) )
                                         print('Hops to reward: ' + str([x for x in received_pcks_hops[received_pck]]))
@@ -392,12 +414,15 @@ class Simulator():
                         #start communication, get a bundle to send
                         bundle = node.start_communication(neighbour, mode = 'epidemic', max_bundle_size = self.max_bundle_size)
                         
-                        energy, _ , received_pcks_hops, _ = neighbour.receive(node,bundle, mode = 'epidemic')
+                        energy, _ , received_pcks_hops, _, bundle = neighbour.receive(node,bundle, mode = 'epidemic')
                         energy_sum += energy
                         rec_sum += len(received_pcks_hops)
-                        
+                        self.collect_packet_copies(bundle)
+                                
                         # remove arrived pckts
                         for received_pck in received_pcks_hops:
+                            self.received_packets.append(received_pck)
+                            
                             if self.debug:
                                 print('**ARRIVED: ' + str(received_pck) )
                                       
@@ -406,6 +431,12 @@ class Simulator():
                                     n.packet_list.pop(received_pck, None)
                                 
             return rec_sum, 0, energy_sum
+        
+        
+        
+    def collect_packet_copies(self, bundle):
+        for pck in bundle:
+            self.copy_counter[pck.id] += 1
         
 #@staticmethod
 def start_simulation(radius = 50, arrival_rate = 1/10, energy_per_packet = 5, deltaP = 0.1, deltaW = 0.1, alpha = 0.01, simulation_len = 100, last_generation = 1, max_bundle_size = 5, debug = False, num_dev = 30):
