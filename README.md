@@ -1,5 +1,5 @@
 # DTNsimulator
-Simulator of a DTN network for the analysis of a Game Theoretic protocol designed by Andrea Manzato and Anna Dorna.
+Simulator of a DTN network for the analysis of a Game Theoretic routing protocol designed by Andrea Manzato and Anna Dorna.
 
 ![Example_scenario](example.png)
 
